@@ -2,9 +2,8 @@ name: Update Nginx Version
 
 on:
   schedule:
-    # Run every day at 2:00 AM UTC
     - cron: '0 2 * * *'
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:
 
 jobs:
   update-nginx:
@@ -13,33 +12,65 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          token: ${{ secrets.PAT }}  # Use the PAT for authentication
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '16'
+          token: ${{ secrets.PAT }}
 
       - name: Update Nginx image to latest
         run: |
-          # Install jq if not available
-          sudo apt-get update && sudo apt-get install -y jq
+          # Install required tools
+          sudo apt-get update && sudo apt-get install -y jq curl
           
-          # Get the latest nginx version from Docker Hub
+          # Get the latest nginx version with better error handling
+          echo "Fetching latest nginx version..."
+          
+          # Method 1: Try Docker Hub API
           latest_version=$(curl -s https://registry.hub.docker.com/v2/nginx/tags/list | jq -r '.tags[]' | grep -E '^[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          
+          # If Method 1 fails, try Method 2
+          if [ -z "$latest_version" ]; then
+            echo "Method 1 failed, trying Method 2..."
+            latest_version=$(curl -s https://hub.docker.com/v2/repositories/library/nginx/tags/ | jq -r '.results[].name' | grep -E '^[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          fi
+          
+          # If both methods fail, use a fallback
+          if [ -z "$latest_version" ]; then
+            echo "Both methods failed, using fallback version"
+            latest_version="1.23.1"
+          fi
+          
           echo "Latest nginx version: $latest_version"
           echo "NGINX_VERSION=$latest_version" >> $GITHUB_ENV
+          
+          # Check if deployment.yaml exists
+          if [ ! -f "my-app/deployment.yaml" ]; then
+            echo "Error: my-app/deployment.yaml not found!"
+            exit 1
+          fi
+          
+          # Show current content
+          echo "Current deployment.yaml:"
+          cat my-app/deployment.yaml
           
           # Update the deployment.yaml with the new version
           sed -i "s|image: nginx:.*|image: nginx:$latest_version|" my-app/deployment.yaml
           
-          # Show the updated file
+          # Show updated content
+          echo "Updated deployment.yaml:"
           cat my-app/deployment.yaml
+          
+          # Verify the change was made
+          if grep -q "image: nginx:$latest_version" my-app/deployment.yaml; then
+            echo "Successfully updated nginx version to $latest_version"
+          else
+            echo "Failed to update nginx version"
+            exit 1
+          fi
 
       - name: Commit and push changes
         run: |
           git config --global user.name 'GitHub Actions'
           git config --global user.email 'actions@github.com'
           git add my-app/deployment.yaml
+          git status
+          git diff --cached
           git commit -m "Update nginx to version ${{ env.NGINX_VERSION }}"
           git push origin main
