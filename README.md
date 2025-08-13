@@ -177,8 +177,8 @@ argocd-server-99c485944-jz6z9                       1/1     Running   11 (118s a
 ```
 
 
-### Set Up Port Forwarding
-
+### Set Up Port Forwarding 
+ 
 Set up port forwarding to access ArgoCD:
 
 ```
